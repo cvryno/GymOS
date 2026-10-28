@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "sOHEtT93vwE=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\SeverinoDev\\Documents\\GymOS\\src\\GymOS.Application\\GymOS.Application.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\SeverinoDev\\.nuget\\packages\\microsoft.extensions.dependencyinjection.abstractions\\10.0.0\\microsoft.extensions.dependencyinjection.abstractions.10.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}

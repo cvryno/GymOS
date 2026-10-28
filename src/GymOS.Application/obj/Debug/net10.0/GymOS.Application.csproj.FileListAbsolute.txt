@@ -1,0 +1,15 @@
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\bin\Debug\net10.0\GymOS.Application.deps.json
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\bin\Debug\net10.0\GymOS.Application.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\bin\Debug\net10.0\GymOS.Application.pdb
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\bin\Debug\net10.0\GymOS.Domain.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\bin\Debug\net10.0\GymOS.Domain.pdb
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.csproj.AssemblyReference.cache
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.AssemblyInfoInputs.cache
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.AssemblyInfo.cs
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.csproj.CoreCompileInputs.cache
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Ap.43BB0DCE.Up2Date
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\refint\GymOS.Application.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\GymOS.Application.pdb
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Application\obj\Debug\net10.0\ref\GymOS.Application.dll

@@ -1,0 +1,11 @@
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\bin\Debug\net10.0\GymOS.Domain.deps.json
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\bin\Debug\net10.0\GymOS.Domain.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\bin\Debug\net10.0\GymOS.Domain.pdb
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.AssemblyInfoInputs.cache
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.AssemblyInfo.cs
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.csproj.CoreCompileInputs.cache
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\refint\GymOS.Domain.dll
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\GymOS.Domain.pdb
+C:\Users\SeverinoDev\Documents\GymOS\src\GymOS.Domain\obj\Debug\net10.0\ref\GymOS.Domain.dll
