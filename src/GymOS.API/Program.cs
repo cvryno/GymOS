@@ -12,8 +12,15 @@ using Quartz;
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<GymCalendar>();
 
 var useSqlServer = builder.Configuration.GetValue<bool>("Database:UseSqlServer", true);
+var gymTimeZoneId = builder.Configuration["Gym:TimeZone"] ?? "America/Guayaquil";
+TimeZoneInfo gymTimeZone;
+try { gymTimeZone = TimeZoneInfo.FindSystemTimeZoneById(gymTimeZoneId); }
+catch (TimeZoneNotFoundException) when (gymTimeZoneId == "America/Guayaquil")
+{ gymTimeZone = TimeZoneInfo.FindSystemTimeZoneById("SA Pacific Standard Time"); }
 var jwtKey = builder.Configuration["Jwt:Key"];
 if (string.IsNullOrWhiteSpace(jwtKey) || Encoding.UTF8.GetByteCount(jwtKey) < 32)
 {
@@ -78,7 +85,7 @@ builder.Services.AddQuartz(q =>
         .ForJob(MembershipExpiryNotificationJob.Key)
         .WithIdentity("membership-expiry-trigger")
         .WithDescription("Runs daily at 9:00 AM to notify members with expiring memberships")
-        .WithCronSchedule("0 0 9 * * ?", x => x.InTimeZone(TimeZoneInfo.Local)));
+        .WithCronSchedule("0 0 9 * * ?", x => x.InTimeZone(gymTimeZone)));
 });
 builder.Services.AddQuartzHostedService(q => q.WaitForJobsToComplete = true);
 

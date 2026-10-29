@@ -1,6 +1,7 @@
 using GymOS.Application.DTOs;
 using GymOS.Domain.Enums;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,8 +14,9 @@ namespace GymOS.API.Controllers;
 public class InvoicesController : ControllerBase
 {
     private readonly GymDbContext _db;
+    private readonly GymCalendar _calendar;
 
-    public InvoicesController(GymDbContext db) => _db = db;
+    public InvoicesController(GymDbContext db, GymCalendar calendar) { _db = db; _calendar = calendar; }
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<InvoiceDto>>> GetAll(
@@ -58,20 +60,22 @@ public class InvoicesController : ControllerBase
         if (string.IsNullOrWhiteSpace(paymentMethod) || paymentMethod.Length > 50)
             return BadRequest(new { message = "Método de pago inválido" });
         invoice.Status = PaymentStatus.Paid;
-        invoice.PaidAt = DateTime.UtcNow;
+        invoice.PaidAt = _calendar.UtcNow;
         invoice.PaymentMethod = paymentMethod;
-        invoice.UpdatedAt = DateTime.UtcNow;
+        invoice.UpdatedAt = _calendar.UtcNow;
         if (invoice.MembershipId.HasValue)
         {
             var membership = await _db.Memberships.Include(m => m.Member).Include(m => m.Plan)
                 .FirstOrDefaultAsync(m => m.Id == invoice.MembershipId.Value);
             if (membership is not null)
             {
-                if (membership.Status == MembershipStatus.Active)
-                    return BadRequest(new { message = "La membresía ya está activada" });
+                if (membership.Status != MembershipStatus.Pending)
+                    return BadRequest(new { message = "La membresía asociada ya no está pendiente de pago" });
                 membership.Status = MembershipStatus.Active;
-                membership.AmountPaid = invoice.Total;
-                membership.UpdatedAt = DateTime.UtcNow;
+                membership.AmountPaid += invoice.Total;
+                membership.StartDate = _calendar.StartOfDayUtc(_calendar.Today);
+                membership.EndDate = _calendar.StartOfDayUtc(_calendar.Today.AddDays(membership.Plan.DurationDays));
+                membership.UpdatedAt = _calendar.UtcNow;
                 membership.Member.Status = GymOS.Domain.Enums.MemberStatus.Active;
                 var previous = await _db.Memberships.Where(m => m.MemberId == membership.MemberId &&
                     m.Id != membership.Id && m.Status == MembershipStatus.Active).ToListAsync();
@@ -95,7 +99,18 @@ public class InvoicesController : ControllerBase
         if (invoice.MembershipId.HasValue)
         {
             var membership = await _db.Memberships.FindAsync(invoice.MembershipId.Value);
-            if (membership is not null) { membership.Status = MembershipStatus.Cancelled; membership.UpdatedAt = DateTime.UtcNow; }
+            if (membership is not null) { membership.Status = MembershipStatus.Cancelled; membership.UpdatedAt = _calendar.UtcNow; }
+        }
+        if (invoice.MembershipId.HasValue)
+        {
+            var memberId = invoice.MemberId;
+            var anotherActiveMembership = await _db.Memberships.AnyAsync(m => m.MemberId == memberId &&
+                m.Id != invoice.MembershipId && m.Status == MembershipStatus.Active && m.EndDate > _calendar.UtcNow);
+            if (!anotherActiveMembership)
+            {
+                var member = await _db.Members.FindAsync(memberId);
+                if (member is not null) member.Status = GymOS.Domain.Enums.MemberStatus.Inactive;
+            }
         }
         await _db.SaveChangesAsync();
         return NoContent();
@@ -114,7 +129,7 @@ public class InvoicesController : ControllerBase
 
         var invoice = new GymOS.Domain.Entities.Invoice
         {
-            InvoiceNumber = $"INV-{DateTime.UtcNow:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}",
+            InvoiceNumber = $"INV-{_calendar.Today:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..10].ToUpperInvariant()}",
             MemberId = dto.MemberId, MembershipId = dto.MembershipId,
             Subtotal = dto.Subtotal, Discount = dto.Discount, Tax = dto.Tax,
             Total = dto.Subtotal - dto.Discount + dto.Tax,
@@ -131,12 +146,14 @@ public class InvoicesController : ControllerBase
     [HttpGet("summary")]
     public async Task<ActionResult> GetSummary()
     {
-        var now = DateTime.UtcNow;
-        var thisMonth = new DateTime(now.Year, now.Month, 1);
+        var today = _calendar.Today;
+        var thisMonth = new DateOnly(today.Year, today.Month, 1);
+        var monthStartUtc = _calendar.StartOfDayUtc(thisMonth);
+        var nextMonthStartUtc = _calendar.StartOfDayUtc(thisMonth.AddMonths(1));
         return Ok(new
         {
             TotalRevenue = await _db.Invoices.Where(i => i.Status == PaymentStatus.Paid).SumAsync(i => (decimal?)i.Total) ?? 0,
-            ThisMonthRevenue = await _db.Invoices.Where(i => i.Status == PaymentStatus.Paid && i.PaidAt >= thisMonth).SumAsync(i => (decimal?)i.Total) ?? 0,
+            ThisMonthRevenue = await _db.Invoices.Where(i => i.Status == PaymentStatus.Paid && i.PaidAt >= monthStartUtc && i.PaidAt < nextMonthStartUtc).SumAsync(i => (decimal?)i.Total) ?? 0,
             PendingCount = await _db.Invoices.CountAsync(i => i.Status == PaymentStatus.Pending),
             OverdueCount = await _db.Invoices.CountAsync(i => i.Status == PaymentStatus.Overdue),
         });

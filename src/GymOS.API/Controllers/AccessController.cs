@@ -2,6 +2,7 @@ using GymOS.Application.DTOs;
 using GymOS.Domain.Entities;
 using GymOS.Domain.Enums;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,8 +15,9 @@ namespace GymOS.API.Controllers;
 public class AccessController : ControllerBase
 {
     private readonly GymDbContext _db;
+    private readonly GymCalendar _calendar;
 
-    public AccessController(GymDbContext db) => _db = db;
+    public AccessController(GymDbContext db, GymCalendar calendar) { _db = db; _calendar = calendar; }
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<AccessLogDto>>> GetAll(
@@ -28,8 +30,8 @@ public class AccessController : ControllerBase
 
         if (date.HasValue)
         {
-            var start = DateTime.SpecifyKind(date.Value.Date, DateTimeKind.Utc);
-            var end = start.AddDays(1);
+            var localDate = DateOnly.FromDateTime(date.Value);
+            var (start, end) = _calendar.DayRangeUtc(localDate);
             query = query.Where(a => a.CheckIn >= start && a.CheckIn < end);
         }
 
@@ -50,10 +52,10 @@ public class AccessController : ControllerBase
     [HttpGet("today")]
     public async Task<ActionResult<List<AccessLogDto>>> GetToday()
     {
-        var today = DateTime.UtcNow.Date;
+        var (today, tomorrow) = _calendar.DayRangeUtc(_calendar.Today);
         var items = await _db.AccessLogs
             .Include(a => a.Member)
-            .Where(a => a.CheckIn.Date == today)
+            .Where(a => a.CheckIn >= today && a.CheckIn < tomorrow)
             .OrderByDescending(a => a.CheckIn)
             .Select(a => new AccessLogDto(
                 a.Id, a.MemberId, a.Member.FullName, a.Member.PhotoUrl ?? "",
@@ -75,7 +77,8 @@ public class AccessController : ControllerBase
             return BadRequest(new { message = "El miembro no está activo" });
 
         var activeMembership = member.Memberships.FirstOrDefault();
-        if (activeMembership is null || activeMembership.IsExpired)
+        var now = _calendar.UtcNow;
+        if (activeMembership is null || activeMembership.StartDate > now || activeMembership.EndDate <= now)
             return BadRequest(new { message = "El miembro no tiene una membresía activa válida" });
 
         // Check if already checked in
@@ -84,7 +87,7 @@ public class AccessController : ControllerBase
         if (existingOpen is not null)
             return BadRequest(new { message = "El miembro ya tiene un check-in abierto" });
 
-        var log = new AccessLog { MemberId = dto.MemberId, CheckIn = DateTime.UtcNow };
+        var log = new AccessLog { MemberId = dto.MemberId, CheckIn = now };
         _db.AccessLogs.Add(log);
         await _db.SaveChangesAsync();
 
@@ -111,7 +114,7 @@ public class AccessController : ControllerBase
         if (log is null) return NotFound(new { message = "Registro de acceso no encontrado" });
         if (log.CheckOut.HasValue) return BadRequest(new { message = "El check-out ya fue registrado" });
 
-        log.CheckOut = DateTime.UtcNow;
+        log.CheckOut = _calendar.UtcNow;
         await _db.SaveChangesAsync();
 
         return Ok(new AccessLogDto(log.Id, log.MemberId, log.Member.FullName, log.Member.PhotoUrl ?? "",

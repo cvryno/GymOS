@@ -39,6 +39,17 @@ public class GymDbContext : DbContext
             e.Property(m => m.Status).HasConversion<string>();
         });
 
+        modelBuilder.Entity<MembershipPlan>().Property(p => p.Price).HasPrecision(18, 2);
+        modelBuilder.Entity<Membership>().Property(m => m.AmountPaid).HasPrecision(18, 2);
+        modelBuilder.Entity<Invoice>(e =>
+        {
+            e.Property(i => i.Subtotal).HasPrecision(18, 2);
+            e.Property(i => i.Discount).HasPrecision(18, 2);
+            e.Property(i => i.Tax).HasPrecision(18, 2);
+            e.Property(i => i.Total).HasPrecision(18, 2);
+        });
+        modelBuilder.Entity<Equipment>().Property(e => e.PurchasePrice).HasPrecision(18, 2);
+
         // Membership
         modelBuilder.Entity<Membership>(e =>
         {
@@ -141,7 +152,7 @@ public class GymDbContext : DbContext
                 Email = "admin@gymos.com",
                 FirstName = "Admin",
                 LastName = "GymOS",
-                PasswordHash = "$2a$11$rQCxJfL5uXELqLLfZ9vKQeGXVpEe2KGE9PVl7.7gQgxvhUvDHT7Ry", // Admin@1234
+                PasswordHash = "$2a$11$LEONOsEQymWYUPpbMBUkoeCjhtbPA28p7Ql3Ha.OLxenQ9CZ.g0fW", // Admin@1234
                 Role = UserRole.Admin,
                 IsActive = true,
                 CreatedAt = new DateTime(2024, 1, 1)

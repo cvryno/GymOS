@@ -1,6 +1,7 @@
 using GymOS.Application.DTOs;
 using GymOS.Domain.Entities;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -13,8 +14,9 @@ namespace GymOS.API.Controllers;
 public class ClassesController : ControllerBase
 {
     private readonly GymDbContext _db;
+    private readonly GymCalendar _calendar;
 
-    public ClassesController(GymDbContext db) => _db = db;
+    public ClassesController(GymDbContext db, GymCalendar calendar) { _db = db; _calendar = calendar; }
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<GymClassDto>>> GetAll(
@@ -155,8 +157,11 @@ public class ClassesController : ControllerBase
         var activeMembership = member.Memberships.First(m => !m.IsExpired && m.Plan.IncludesClasses);
         if (activeMembership.Plan.MaxClassesPerMonth.HasValue)
         {
-            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-            var monthlyEnrollments = await _db.ClassEnrollments.CountAsync(e => e.MemberId == member.Id && e.IsActive && e.EnrolledAt >= monthStart);
+            var today = _calendar.Today;
+            var monthStart = _calendar.StartOfDayUtc(new DateOnly(today.Year, today.Month, 1));
+            var nextMonthStart = _calendar.StartOfDayUtc(new DateOnly(today.Year, today.Month, 1).AddMonths(1));
+            var monthlyEnrollments = await _db.ClassEnrollments.CountAsync(e => e.MemberId == member.Id &&
+                e.IsActive && e.EnrolledAt >= monthStart && e.EnrolledAt < nextMonthStart);
             if (monthlyEnrollments >= activeMembership.Plan.MaxClassesPerMonth.Value)
                 return BadRequest(new { message = "El plan alcanzó el límite mensual de clases" });
         }
@@ -184,7 +189,7 @@ public class ClassesController : ControllerBase
         if (!enrollment.IsActive) return BadRequest(new { message = "La inscripción no está activa" });
 
         enrollment.IsActive = false;
-        enrollment.UpdatedAt = DateTime.UtcNow;
+        enrollment.UpdatedAt = _calendar.UtcNow;
         var next = await _db.ClassEnrollments
             .Where(e => e.ClassId == enrollment.ClassId && !e.IsActive && e.Id != enrollment.Id)
             .OrderBy(e => e.EnrolledAt).FirstOrDefaultAsync();

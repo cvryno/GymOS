@@ -3,6 +3,7 @@ using GymOS.Application.Interfaces;
 using GymOS.Domain.Entities;
 using GymOS.Domain.Enums;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -16,11 +17,13 @@ public class MembershipsController : ControllerBase
 {
     private readonly GymDbContext _db;
     private readonly IWhatsAppService _whatsApp;
+    private readonly GymCalendar _calendar;
 
-    public MembershipsController(GymDbContext db, IWhatsAppService whatsApp)
+    public MembershipsController(GymDbContext db, IWhatsAppService whatsApp, GymCalendar calendar)
     {
         _db = db;
         _whatsApp = whatsApp;
+        _calendar = calendar;
     }
 
     [HttpGet]
@@ -63,11 +66,13 @@ public class MembershipsController : ControllerBase
     {
         if (days < 0 || days > 90)
             return BadRequest(new { message = "El rango debe estar entre 0 y 90 días" });
-        var targetDate = DateTime.UtcNow.AddDays(days);
+        var today = _calendar.Today;
+        var from = _calendar.StartOfDayUtc(today);
+        var until = _calendar.StartOfDayUtc(today.AddDays(days + 1));
         var items = await _db.Memberships
             .Include(m => m.Member)
             .Include(m => m.Plan)
-            .Where(m => m.Status == MembershipStatus.Active && m.EndDate <= targetDate && m.EndDate >= DateTime.UtcNow)
+            .Where(m => m.Status == MembershipStatus.Active && m.EndDate > from && m.EndDate <= until)
             .OrderBy(m => m.EndDate)
             .Select(m => new MembershipDto(
                 m.Id, m.MemberId, m.Member.FullName, m.Member.Email, m.Member.PhoneNumber,
@@ -89,15 +94,24 @@ public class MembershipsController : ControllerBase
         var plan = await _db.MembershipPlans.FindAsync(dto.PlanId);
         if (plan is null) return BadRequest(new { message = "Plan no encontrado" });
         if (!plan.IsActive) return BadRequest(new { message = "El plan no está activo" });
+        if (plan.DurationDays <= 0 || plan.Price <= 0)
+            return BadRequest(new { message = "El plan tiene un precio o duración inválidos" });
+        if (dto.AmountPaid != 0 && dto.AmountPaid != plan.Price)
+            return BadRequest(new { message = "Para esta versión se debe registrar el pago completo o dejar la factura pendiente" });
+
+        var startDate = DateOnly.FromDateTime(dto.StartDate);
+        if (startDate > _calendar.Today)
+            return BadRequest(new { message = "La fecha de inicio no puede estar en el futuro" });
 
         var membership = new Membership
         {
             MemberId = dto.MemberId,
             PlanId = dto.PlanId,
-            StartDate = dto.StartDate,
-            EndDate = dto.StartDate.AddDays(plan.DurationDays),
+            StartDate = _calendar.StartOfDayUtc(startDate),
+            EndDate = _calendar.StartOfDayUtc(startDate.AddDays(plan.DurationDays)),
             AmountPaid = dto.AmountPaid,
-            Status = dto.AmountPaid >= plan.Price ? MembershipStatus.Active : MembershipStatus.Pending
+            Status = dto.AmountPaid == plan.Price ? MembershipStatus.Active : MembershipStatus.Pending,
+            Notes = dto.Notes
         };
 
         if (membership.Status == MembershipStatus.Active)
@@ -108,42 +122,21 @@ public class MembershipsController : ControllerBase
             existingActive.ForEach(m => m.Status = MembershipStatus.Cancelled);
             member.Status = MemberStatus.Active;
         }
-        else if (membership.Status == MembershipStatus.Pending)
-        {
-            membership.StartDate = membership.StartDate.Date;
-            membership.EndDate = membership.StartDate.AddDays(plan.DurationDays);
-        }
-        _db.Memberships.Add(membership);
-
-        // Create invoice
         var invoice = new Invoice
         {
-            InvoiceNumber = $"INV-{DateTime.Now:yyyyMMdd}-{Guid.NewGuid().ToString()[..6].ToUpper()}",
+            InvoiceNumber = $"INV-{_calendar.Today:yyyyMMdd}-{Guid.NewGuid().ToString("N")[..10].ToUpperInvariant()}",
             MemberId = dto.MemberId,
-            Subtotal = dto.AmountPaid,
-            Total = dto.AmountPaid,
-            DueDate = dto.StartDate,
-            PaidAt = DateTime.UtcNow,
+            Subtotal = plan.Price,
+            Total = plan.Price,
+            DueDate = _calendar.StartOfDayUtc(startDate),
+            PaidAt = membership.Status == MembershipStatus.Active ? _calendar.UtcNow : null,
             Status = membership.Status == MembershipStatus.Active ? PaymentStatus.Paid : PaymentStatus.Pending,
-            PaymentMethod = "Efectivo"
+            PaymentMethod = membership.Status == MembershipStatus.Active ? "Efectivo" : null,
+            Notes = dto.Notes,
+            Membership = membership
         };
-        if (membership.Status == MembershipStatus.Pending) invoice.PaidAt = null;
+        _db.Memberships.Add(membership);
         _db.Invoices.Add(invoice);
-
-        await _db.SaveChangesAsync();
-
-        if (membership.Status == MembershipStatus.Pending)
-        {
-            invoice.MembershipId = membership.Id;
-            await _db.SaveChangesAsync();
-            return CreatedAtAction(nameof(GetAll), new { id = membership.Id },
-                new MembershipDto(membership.Id, membership.MemberId, member.FullName, member.Email, member.PhoneNumber,
-                    membership.PlanId, plan.Name, membership.StartDate, membership.EndDate,
-                    membership.Status.ToString(), membership.AmountPaid, membership.DaysRemaining, membership.NotificationSent));
-        }
-
-        // Link invoice to membership
-        invoice.MembershipId = membership.Id;
         await _db.SaveChangesAsync();
 
         return CreatedAtAction(nameof(GetAll), new { id = membership.Id },
@@ -181,7 +174,7 @@ public class MembershipsController : ControllerBase
         if (membership is null) return NotFound();
 
         membership.Status = MembershipStatus.Cancelled;
-        membership.UpdatedAt = DateTime.UtcNow;
+        membership.UpdatedAt = _calendar.UtcNow;
         await _db.SaveChangesAsync();
         return NoContent();
     }
@@ -228,7 +221,7 @@ public class MembershipsController : ControllerBase
         plan.Price = dto.Price; plan.DurationDays = dto.DurationDays;
         plan.IncludesClasses = dto.IncludesClasses;
         plan.MaxClassesPerMonth = dto.MaxClassesPerMonth;
-        plan.UpdatedAt = DateTime.UtcNow;
+        plan.UpdatedAt = _calendar.UtcNow;
         await _db.SaveChangesAsync();
         return NoContent();
     }

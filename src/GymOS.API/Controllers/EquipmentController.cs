@@ -2,6 +2,7 @@ using GymOS.Application.DTOs;
 using GymOS.Domain.Entities;
 using GymOS.Domain.Enums;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,8 +15,9 @@ namespace GymOS.API.Controllers;
 public class EquipmentController : ControllerBase
 {
     private readonly GymDbContext _db;
+    private readonly GymCalendar _calendar;
 
-    public EquipmentController(GymDbContext db) => _db = db;
+    public EquipmentController(GymDbContext db, GymCalendar calendar) { _db = db; _calendar = calendar; }
 
     [HttpGet]
     public async Task<ActionResult<PagedResult<EquipmentDto>>> GetAll(
@@ -116,7 +118,7 @@ public class EquipmentController : ControllerBase
     public async Task<ActionResult<List<EquipmentDto>>> GetMaintenanceDue()
     {
         var items = await _db.Equipment
-            .Where(e => e.NextMaintenanceDate <= DateTime.UtcNow.AddDays(7))
+            .Where(e => e.NextMaintenanceDate <= _calendar.StartOfDayUtc(_calendar.Today.AddDays(8)))
             .OrderBy(e => e.NextMaintenanceDate)
             .Select(e => new EquipmentDto(e.Id, e.Name, e.Brand, e.Model, e.SerialNumber,
                 e.Status.ToString(), e.Category, e.PurchaseDate, e.PurchasePrice,
@@ -129,7 +131,8 @@ public class EquipmentController : ControllerBase
     [Authorize(Policy = "AdminOrReceptionist")]
     public async Task<IActionResult> RecordMaintenance(int id, [FromBody] MaintenanceRecordDto dto)
     {
-        if (dto.NextMaintenanceDate.HasValue && dto.NextMaintenanceDate.Value.Date <= dto.MaintenanceDate.Date)
+        if (dto.MaintenanceDate == default ||
+            (dto.NextMaintenanceDate.HasValue && DateOnly.FromDateTime(dto.NextMaintenanceDate.Value) <= DateOnly.FromDateTime(dto.MaintenanceDate)))
             return BadRequest(new { message = "La siguiente fecha debe ser posterior al mantenimiento" });
         var equipment = await _db.Equipment.FindAsync(id);
         if (equipment is null) return NotFound();
@@ -137,7 +140,7 @@ public class EquipmentController : ControllerBase
         equipment.NextMaintenanceDate = dto.NextMaintenanceDate;
         equipment.Status = EquipmentStatus.Operational;
         equipment.Notes = string.IsNullOrWhiteSpace(dto.Notes) ? equipment.Notes : dto.Notes;
-        equipment.UpdatedAt = DateTime.UtcNow;
+        equipment.UpdatedAt = _calendar.UtcNow;
         await _db.SaveChangesAsync();
         return NoContent();
     }

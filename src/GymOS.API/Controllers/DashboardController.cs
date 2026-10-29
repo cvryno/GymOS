@@ -1,5 +1,6 @@
 using GymOS.Application.DTOs;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -12,15 +13,19 @@ namespace GymOS.API.Controllers;
 public class DashboardController : ControllerBase
 {
     private readonly GymDbContext _db;
+    private readonly GymCalendar _calendar;
 
-    public DashboardController(GymDbContext db) => _db = db;
+    public DashboardController(GymDbContext db, GymCalendar calendar) { _db = db; _calendar = calendar; }
 
     [HttpGet]
     public async Task<ActionResult<DashboardStatsDto>> GetStats()
     {
-        var now = DateTime.UtcNow;
-        var thisMonthStart = new DateTime(now.Year, now.Month, 1);
-        var lastMonthStart = thisMonthStart.AddMonths(-1);
+        var now = _calendar.UtcNow;
+        var localToday = _calendar.Today;
+        var thisMonthDate = new DateOnly(localToday.Year, localToday.Month, 1);
+        var thisMonthStart = _calendar.StartOfDayUtc(thisMonthDate);
+        var nextMonthStart = _calendar.StartOfDayUtc(thisMonthDate.AddMonths(1));
+        var lastMonthStart = _calendar.StartOfDayUtc(thisMonthDate.AddMonths(-1));
 
         var totalMembers = await _db.Members.CountAsync();
         var activeMembers = await _db.Members.CountAsync(m => m.Status == Domain.Enums.MemberStatus.Active);
@@ -35,16 +40,18 @@ public class DashboardController : ControllerBase
             .SumAsync(i => (decimal?)i.Total) ?? 0;
 
         var totalClasses = await _db.GymClasses.CountAsync();
-        var today = now.DayOfWeek;
-        var classesToday = await _db.ClassSchedules.CountAsync(s => s.DayOfWeek == today && s.IsActive);
+        var classesToday = await _db.ClassSchedules.CountAsync(s => s.DayOfWeek == localToday.DayOfWeek && s.IsActive);
 
+        var expiringIn3Start = _calendar.StartOfDayUtc(localToday.AddDays(3));
+        var expiringIn3End = _calendar.StartOfDayUtc(localToday.AddDays(4));
+        var expiringIn7End = _calendar.StartOfDayUtc(localToday.AddDays(8));
         var expiringIn3 = await _db.Memberships
             .CountAsync(m => m.Status == Domain.Enums.MembershipStatus.Active &&
-                m.EndDate.Date == now.Date.AddDays(3));
+                m.EndDate >= expiringIn3Start && m.EndDate < expiringIn3End);
 
         var expiringIn7 = await _db.Memberships
             .CountAsync(m => m.Status == Domain.Enums.MembershipStatus.Active &&
-                m.EndDate <= now.AddDays(7) && m.EndDate >= now);
+                m.EndDate < expiringIn7End && m.EndDate > now);
 
         var activeMembershipsCount = await _db.Memberships
             .CountAsync(m => m.Status == Domain.Enums.MembershipStatus.Active);
@@ -53,12 +60,13 @@ public class DashboardController : ControllerBase
         var monthlyRevenue = new List<MonthlyRevenueDto>();
         for (int i = 5; i >= 0; i--)
         {
-            var start = thisMonthStart.AddMonths(-i);
-            var end = start.AddMonths(1);
+            var monthDate = thisMonthDate.AddMonths(-i);
+            var start = _calendar.StartOfDayUtc(monthDate);
+            var end = _calendar.StartOfDayUtc(monthDate.AddMonths(1));
             var rev = await _db.Invoices
                 .Where(inv => inv.PaidAt >= start && inv.PaidAt < end && inv.Status == Domain.Enums.PaymentStatus.Paid)
                 .SumAsync(inv => (decimal?)inv.Total) ?? 0;
-            monthlyRevenue.Add(new MonthlyRevenueDto(start.ToString("MMM yyyy"), rev));
+            monthlyRevenue.Add(new MonthlyRevenueDto(monthDate.ToString("MMM yyyy"), rev));
         }
 
         // Memberships by plan
@@ -107,7 +115,7 @@ public class DashboardController : ControllerBase
             .Include(m => m.Member)
             .Include(m => m.Plan)
             .Where(m => m.Status == Domain.Enums.MembershipStatus.Active &&
-                m.EndDate <= now.AddDays(7) && m.EndDate >= now)
+                m.EndDate < expiringIn7End && m.EndDate > now)
             .OrderBy(m => m.EndDate)
             .Take(10)
             .Select(m => new MembershipDto(
@@ -128,8 +136,10 @@ public class DashboardController : ControllerBase
     [HttpGet("reports/attendance")]
     public async Task<IActionResult> AttendanceReport([FromQuery] DateTime? from, [FromQuery] DateTime? to)
     {
-        var start = DateTime.SpecifyKind((from ?? DateTime.UtcNow.Date.AddDays(-29)).Date, DateTimeKind.Utc);
-        var end = DateTime.SpecifyKind((to ?? DateTime.UtcNow.Date).Date.AddDays(1), DateTimeKind.Utc);
+        var startDate = from.HasValue ? DateOnly.FromDateTime(from.Value) : _calendar.Today.AddDays(-29);
+        var endDate = to.HasValue ? DateOnly.FromDateTime(to.Value) : _calendar.Today;
+        var start = _calendar.StartOfDayUtc(startDate);
+        var end = _calendar.StartOfDayUtc(endDate.AddDays(1));
         if (end <= start || (end - start).TotalDays > 366)
             return BadRequest(new { message = "El rango debe ser válido y no exceder 366 días" });
         var report = await _db.AccessLogs.Where(a => a.CheckIn >= start && a.CheckIn < end)

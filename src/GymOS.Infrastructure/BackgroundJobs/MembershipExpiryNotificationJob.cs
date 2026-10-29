@@ -1,6 +1,7 @@
 using GymOS.Application.Interfaces;
 using GymOS.Domain.Enums;
 using GymOS.Infrastructure.Data;
+using GymOS.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -35,11 +36,12 @@ public class MembershipExpiryNotificationJob : IJob
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<GymDbContext>();
         var whatsAppService = scope.ServiceProvider.GetRequiredService<IWhatsAppService>();
+        var calendar = scope.ServiceProvider.GetRequiredService<GymCalendar>();
 
         try
         {
-            var today = DateTime.UtcNow.Date;
-            var targetDate = today.AddDays(3);
+            var targetDate = calendar.Today.AddDays(3);
+            var (targetStart, targetEnd) = calendar.DayRangeUtc(targetDate);
 
             // Find memberships expiring in exactly 3 days that haven't been notified yet
             var expiringMemberships = await db.Memberships
@@ -47,7 +49,7 @@ public class MembershipExpiryNotificationJob : IJob
                 .Include(m => m.Plan)
                 .Where(m =>
                     m.Status == MembershipStatus.Active &&
-                    m.EndDate.Date == targetDate &&
+                    m.EndDate >= targetStart && m.EndDate < targetEnd &&
                     !m.NotificationSent &&
                     !m.Member.IsDeleted &&
                     !string.IsNullOrEmpty(m.Member.PhoneNumber))
@@ -69,7 +71,7 @@ public class MembershipExpiryNotificationJob : IJob
                     if (success)
                     {
                         membership.NotificationSent = true;
-                        membership.NotificationSentAt = DateTime.UtcNow;
+                        membership.NotificationSentAt = calendar.UtcNow;
                         await db.SaveChangesAsync(context.CancellationToken);
                         successCount++;
                         _logger.LogInformation("[MembershipExpiryJob] Notification sent to {Name} ({Phone})",

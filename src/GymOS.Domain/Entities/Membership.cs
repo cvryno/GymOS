@@ -19,6 +19,10 @@ public class Membership : BaseEntity
     public MembershipPlan Plan { get; set; } = null!;
     public Invoice? Invoice { get; set; }
 
-    public bool IsExpired => EndDate < DateTime.UtcNow;
-    public int DaysRemaining => (EndDate - DateTime.UtcNow).Days;
+    // EndDate is the exclusive UTC instant at the start of the day after the membership ends.
+    public bool IsExpired => IsExpiredAt(DateTime.UtcNow);
+    public int DaysRemaining => DaysRemainingAt(DateTime.UtcNow);
+
+    public bool IsExpiredAt(DateTime utcNow) => EndDate <= utcNow;
+    public int DaysRemainingAt(DateTime utcNow) => Math.Max(0, (int)Math.Ceiling((EndDate - utcNow).TotalDays));
 }
